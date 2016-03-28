@@ -1,0 +1,14 @@
+{
+    "name": "webexcess/flow-backup",
+    "type": "typo3-flow-package",
+    "description": "A Neos & Flow Framework <Incremental Backup Package> for Database & Persistent Files.",
+    "require": {
+        "typo3/flow": "~3.1",
+        "defuse/php-encryption": "~1.2"
+    },
+    "autoload": {
+        "psr-0": {
+            "WebExcess\\Flow\\Backup": "Classes"
+        }
+    }
+}
