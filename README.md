@@ -79,7 +79,7 @@ Signals Reference
 
 - BackupStarted *()*
 - BackupFinished *(OutputInterface $output, array $stats)*
-- RestoreStarted *($versionToRestore)*
+- RestoreStarted *(string $versionToRestore)*
 - RestoreAborted *(OutputInterface $output)*
 - RestoreFinished *(OutputInterface $output, array $stats)*
 - BackupVersionsRemoved *(OutputInterface $output, array $removedVersions)*

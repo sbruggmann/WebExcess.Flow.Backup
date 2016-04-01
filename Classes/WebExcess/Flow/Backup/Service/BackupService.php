@@ -682,7 +682,7 @@ class BackupService
             $this->output->outputLine();
 
             if (count($removedVersions)>0) {
-                $this->emitBackupVersionsRemoved($removedVersions);
+                $this->emitBackupVersionsRemoved($this->output, $removedVersions);
             }
         }
     }
