@@ -97,8 +97,8 @@ class BackupCommandController extends \TYPO3\Flow\Cli\CommandController
     public function clearCommand()
     {
         $this->initialize();
-        //$this->backupService->removeAllBackups();
-        $this->backupService->removeOldBackups();
+        $this->backupService->removeAllBackups();
+        //$this->backupService->removeOldBackups();
     }
 
     /**

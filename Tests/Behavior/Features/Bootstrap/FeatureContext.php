@@ -13,8 +13,8 @@ use PHPUnit_Framework_Assert as Assert;
 use Symfony\Component\DomCrawler\Crawler;
 use TYPO3\Flow\Utility\Files;
 
-require_once( (string)str_replace('docker/host-www/', 'docker/www/', realpath(__DIR__ . '/../../../../../Flowpack.Behat/Tests/Behat/FlowContext.php')) );
-//require_once('/docker/www/Neos/Packages/Application/Flowpack.Behat/Tests/Behat/FlowContext.php');
+// todo: cross environment path
+require_once('/docker/www/Neos/Packages/Application/Flowpack.Behat/Tests/Behat/FlowContext.php');
 
 /**
  * Features context

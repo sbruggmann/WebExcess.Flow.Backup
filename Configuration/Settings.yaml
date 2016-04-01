@@ -1,0 +1,11 @@
+WebExcess:
+  Flow:
+    Backup:
+      Folders:
+        Sources:
+          - %FLOW_PATH_DATA%Persistent/
+          # - %FLOW_PATH_ROOT%Configuration/
+          # - %FLOW_PATH_PACKAGES%Plugins/
+          # - %FLOW_PATH_PACKAGES%Framework/
+          # - %FLOW_PATH_PACKAGES%Libraries/
+        LocalTarget: %FLOW_PATH_DATA%Backup/
