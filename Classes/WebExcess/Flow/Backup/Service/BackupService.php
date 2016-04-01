@@ -98,11 +98,20 @@ class BackupService
      */
     public function createBackup()
     {
-        $this->emitBackupStarted();
         $this->output->outputLine();
+
+        if ( !file_exists($this->createFilePath([$this->localBackupTarget, 'key'])) ) {
+            $this->output->outputLine('<b>You don\'t have a keyfile!</b>');
+            $this->output->outputLine();
+            $this->output->outputLine('Call \'./flow backup:key\' to to generate it.');
+            $this->output->outputLine();
+            return;
+        }
+
         $this->output->outputLine('<b>Prepare Backup</b>');
         $this->output->outputLine();
 
+        $this->emitBackupStarted();
         $newVersion = time();
 
         $stats = array(
@@ -186,10 +195,20 @@ class BackupService
      */
     public function restoreBackup($versionToRestore)
     {
-        $this->emitRestoreStarted($versionToRestore);
         $this->output->outputLine();
+
+        if ( !file_exists($this->createFilePath([$this->localBackupTarget, 'key'])) ) {
+            $this->output->outputLine('<b>You don\'t have a keyfile!</b>');
+            $this->output->outputLine();
+            $this->output->outputLine('Call \'./flow backup:key\' to to generate it.');
+            $this->output->outputLine();
+            return;
+        }
+
         $this->output->outputLine('<b>Check Backup..</b>');
         $this->output->outputLine();
+
+        $this->emitRestoreStarted($versionToRestore);
         $stats = array(
             'restored' => 0,
             'bytes' => 0,

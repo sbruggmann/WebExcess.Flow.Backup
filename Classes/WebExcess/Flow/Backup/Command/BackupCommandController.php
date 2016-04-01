@@ -49,6 +49,16 @@ class BackupCommandController extends \TYPO3\Flow\Cli\CommandController
 
         if (is_null($selectedBackup)) {
             $availableVersions = $this->backupService->getAvailableVersions();
+
+            if ( count($availableVersions)<=0 ) {
+                $this->output->outputLine();
+                $this->output->outputLine('<b>You have no Backups!</b>');
+                $this->output->outputLine();
+                $this->output->outputLine('Call \'./flow backup:now\' and create one.');
+                $this->output->outputLine();
+                return;
+            }
+
             $selectedBackup = $this->askWithSelectForVersion($availableVersions);
         }
 
