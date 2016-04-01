@@ -98,6 +98,7 @@ class BackupService
      */
     public function createBackup()
     {
+        $this->emitBackupStarted();
         $this->output->outputLine();
         $this->output->outputLine('<b>Prepare Backup</b>');
         $this->output->outputLine();
@@ -173,6 +174,7 @@ class BackupService
         $this->output->outputLine(' - Updated: '.$stats['updated']);
         $this->output->outputLine(' - Removed: '.$stats['removed']);
         $this->output->outputLine();
+        $this->emitBackupFinished($this->output, $stats);
         return;
     }
 
@@ -184,6 +186,7 @@ class BackupService
      */
     public function restoreBackup($versionToRestore)
     {
+        $this->emitRestoreStarted($versionToRestore);
         $this->output->outputLine();
         $this->output->outputLine('<b>Check Backup..</b>');
         $this->output->outputLine();
@@ -244,6 +247,7 @@ class BackupService
             $this->output->outputLine('<b>I\'m so sorry!</b>');
             $this->output->outputLine('Hopefully you have another Backup..');
             $this->output->outputLine();
+            $this->emitRestoreAborted($this->output);
             return;
         }
 
@@ -288,6 +292,7 @@ class BackupService
         $this->output->outputLine();
         $this->output->outputLine('<b>Restored ' . $stats['restored'] . ' files</b> with a total of ' . $this->formatBytes($stats['bytes']));
         $this->output->outputLine();
+        $this->emitRestoreFinished($this->output, $stats);
         return;
     }
 
@@ -645,15 +650,21 @@ class BackupService
 
             $this->output->outputLine('Remove old Backups..');
             $i = 0;
+            $removedVersions = array();
             foreach ($versions as $version) {
                 $remove = ($i<(count($versions)-$this->historyLimit)) ? true : false;
                 if ($remove) {
                     $this->files->removeDirectoryRecursively($this->createDirectoryPath([$this->localBackupTarget, $version]));
                     $this->output->outputLine(' - '.$version);
+                    $removedVersions[] = $versions;
                 }
                 $i++;
             }
             $this->output->outputLine();
+
+            if (count($removedVersions)>0) {
+                $this->emitBackupVersionsRemoved($removedVersions);
+            }
         }
     }
 
@@ -702,5 +713,49 @@ class BackupService
         $path = $this->createDirectoryPath($segments);
         return substr($path, 0, -1);
     }
+
+    /**
+     * @return void
+     * @Flow\Signal
+     */
+    protected function emitBackupStarted() {}
+
+    /**
+     * @param OutputInterface $output
+     * @param array $stats
+     * @return void
+     * @Flow\Signal
+     */
+    protected function emitBackupFinished(OutputInterface $output, array $stats) {}
+
+    /**
+     * @param string $versionToRestore
+     * @return void
+     * @Flow\Signal
+     */
+    protected function emitRestoreStarted($versionToRestore) {}
+
+    /**
+     * @param OutputInterface $output
+     * @return void
+     * @Flow\Signal
+     */
+    protected function emitRestoreAborted(OutputInterface $output) {}
+
+    /**
+     * @param OutputInterface $output
+     * @param array $stats
+     * @return void
+     * @Flow\Signal
+     */
+    protected function emitRestoreFinished(OutputInterface $output, array $stats) {}
+
+    /**
+     * @param OutputInterface $output
+     * @param array $removedVersions
+     * @return void
+     * @Flow\Signal
+     */
+    protected function emitBackupVersionsRemoved(OutputInterface $output, array $removedVersions) {}
 
 }

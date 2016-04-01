@@ -73,3 +73,13 @@ WebExcess:
           # - %FLOW_PATH_PACKAGES%Libraries/
         LocalTarget: %FLOW_PATH_DATA%Backup/
 ```
+
+Signals Reference
+-----------------
+
+- BackupStarted *()*
+- BackupFinished *(OutputInterface $output, array $stats)*
+- RestoreStarted *($versionToRestore)*
+- RestoreAborted *(OutputInterface $output)*
+- RestoreFinished *(OutputInterface $output, array $stats)*
+- BackupVersionsRemoved *(OutputInterface $output, array $removedVersions)*
