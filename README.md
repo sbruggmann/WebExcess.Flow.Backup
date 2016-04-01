@@ -1,10 +1,23 @@
 # WebExcess.Flow.Backup
 
-A Neos &amp; Flow Framework **Incremental Backup Package** for Database &amp; Persistent Files.
+**An incremental & encrypted Backup Package for Neos & Flow Framework**
 
-Note: This package is still experimental and not for production.
+Note: This package is still experimental and not for production and I'm happy about every inputs!
 
-Important: The backup files are encrypted. If you lose the keyfile, your backup is worthless.
+Important
+---------
+
+**Test it tough!** And test it on the stage of your final environment.
+
+The backup files are encrypted. If you lose the keyfile, your backup is worthless.
+
+
+Installation
+------------
+
+```
+composer require webexcess/flow-backup
+```
 
 Quick start
 -----------
@@ -37,4 +50,26 @@ Remove all Backups:
 
 ```
 ./flow backup:clear
+```
+
+Configuration
+-------------
+
+If you really have to backup more than the Database and the Persistent Files, feel free to add more directories. 
+
+Settings.yaml
+
+```
+WebExcess:
+  Flow:
+    Backup:
+      HistoryLimit: 30
+      Folders:
+        Sources:
+          - %FLOW_PATH_DATA%Persistent/
+          # - %FLOW_PATH_ROOT%Configuration/
+          # - %FLOW_PATH_PACKAGES%Plugins/
+          # - %FLOW_PATH_PACKAGES%Framework/
+          # - %FLOW_PATH_PACKAGES%Libraries/
+        LocalTarget: %FLOW_PATH_DATA%Backup/
 ```
