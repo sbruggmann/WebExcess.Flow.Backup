@@ -92,13 +92,16 @@ class BackupCommandController extends \TYPO3\Flow\Cli\CommandController
     /**
      * Remove all Backups
      *
+     * @param boolean $force
      * @return void
      */
-    public function clearCommand()
+    public function clearCommand($force = null)
     {
         $this->initialize();
         $this->backupService->removeAllBackups();
-        //$this->backupService->removeOldBackups();
+        if ( $force===true ) {
+            $this->backupService->removeKeyfile();
+        }
     }
 
     /**

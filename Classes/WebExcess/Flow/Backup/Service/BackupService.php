@@ -299,6 +299,16 @@ class BackupService
     public function generateKeyFile()
     {
         $this->output->outputLine();
+
+        if ( file_exists($this->createFilePath([$this->localBackupTarget, 'key'])) ) {
+            $this->output->outputLine('<b>You have already a keyfile!</b>');
+            $this->output->outputLine('If you generate a new one, all existing Backups are worthless.');
+            $this->output->outputLine();
+            $this->output->outputLine('Call \'./flow backup:clear --force\' to delete all Backups and the Keyfile.');
+            $this->output->outputLine();
+            return;
+        }
+
         $this->output->outputLine('<b>Generate a new Crypto Key</b>');
         $this->output->outputLine();
 
@@ -572,6 +582,11 @@ class BackupService
         $this->files->removeDirectoryRecursively($this->createDirectoryPath([$this->localBackupTarget, 'Database']));
     }
 
+    /**
+     * Remove all Backup Versions
+     *
+     * @return void
+     */
     public function removeAllBackups()
     {
         $this->output->outputLine();
@@ -591,6 +606,11 @@ class BackupService
 
     }
 
+    /**
+     * Removes all Backup Version which are older than $thia->historyLimit
+     *
+     * @return void
+     */
     public function removeOldBackups()
     {
         $versions = $this->getAvailableVersions();
@@ -634,6 +654,21 @@ class BackupService
                 $i++;
             }
             $this->output->outputLine();
+        }
+    }
+
+    /**
+     * @return void
+     */
+    public function removeKeyfile()
+    {
+        $this->output->outputLine();
+        $this->output->outputLine('<b>Remove Keyfile</b>');
+        $this->output->outputLine();
+
+        $keyfile = $this->createFilePath([$this->localBackupTarget, 'key']);
+        if ( file_exists($keyfile)) {
+            unlink($keyfile);
         }
     }
 
