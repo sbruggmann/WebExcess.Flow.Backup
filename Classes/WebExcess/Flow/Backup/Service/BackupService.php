@@ -6,6 +6,7 @@ namespace WebExcess\Flow\Backup\Service;
  */
 
 use TYPO3\Flow\Annotations as Flow;
+use TYPO3\Flow\Utility\Exception;
 use TYPO3\Flow\Utility\Files;
 use TYPO3\Flow\Cli\ConsoleOutput;
 use WebExcess\Flow\Backup\Service\CryptService;
@@ -32,6 +33,12 @@ class BackupService
     protected $localBackupTarget;
 
     /**
+     * @Flow\InjectConfiguration(path="HistoryLimit", package="WebExcess.Flow.Backup")
+     * @var integer
+     */
+    protected $historyLimit;
+
+    /**
      * @var OutputInterface
      */
     protected $output;
@@ -55,26 +62,18 @@ class BackupService
     protected $folders;
 
     /**
-     * Limit of stored Backups
-     *
-     * @var integer
-     */
-    protected $limit;
-
-    /**
      * @param OutputInterface $output
      * @param mixed $keyFile
      * @return void
      */
     public function initialize($output, $keyFile = null)
     {
-        $this->limit = 6;
         if ($this->databaseConfiguration['driver'] == 'pdo_mysql') {
-            $this->backupFolders[] = $this->localBackupTarget . 'Database/';
+            $this->backupFolders[] = $this->createDirectoryPath([$this->localBackupTarget, 'Database']);
         }
 
         if (is_null($keyFile)) {
-            $keyFile = $this->localBackupTarget . 'key';
+            $keyFile = $this->createFilePath([$this->localBackupTarget, 'key']);
         }
 
         $this->output = $output;
@@ -112,24 +111,23 @@ class BackupService
             'removed' => 0,
         );
 
-        $this->output->outputLine('<b>Run Backup</b>');
-        $this->output->outputLine();
-
         $this->dumpDatabase();
 
-        foreach ($this->backupFolders as $folder) {
+        foreach ($this->backupFolders as $folderIndex => $folder) {
             $relativeFolder = $this->getPathByFlowRoot($folder);
 
-            $this->output->outputLine('Load Backup Versions for '.$relativeFolder.'..');
+            $this->output->outputLine('<b>'.($folderIndex+1).'/'.count($this->backupFolders).' Backup '.$relativeFolder.'</b>');
             $this->output->outputLine();
+            $this->output->outputLine('Load Backup Versions..');
+
             $latestFlatBackup = $this->getFlatBackup($folder);
             $newBackupClean = $this->getBackupActions($folder, $newVersion, $latestFlatBackup);
             $stats['checked'] = $stats['checked'] + count($latestFlatBackup);
 
             if ( count($newBackupClean)>0 ) {
                 // encrypt and create backup..
-                $this->files->createDirectoryRecursively($this->localBackupTarget . $newVersion . '/' . $relativeFolder . '/');
-                $this->output->outputLine('Backup '.$relativeFolder.' Files..');
+                $this->files->createDirectoryRecursively($this->createDirectoryPath([$this->localBackupTarget, $newVersion, $relativeFolder]));
+                $this->output->outputLine('Backup Files..');
                 $this->output->progressStart(count($newBackupClean));
                 $i = 0;
                 foreach ($newBackupClean as $sha1 => $fileItem) {
@@ -142,9 +140,9 @@ class BackupService
 
                         $this->cryptService->encryptFileToFile(
                             $fileItem['file'],
-                            $this->localBackupTarget . $newVersion . '/' . $relativeFolder . '/' . $sha1 . '.file');
+                            $this->createFilePath([$this->localBackupTarget, $newVersion, $relativeFolder, $sha1 . '.file']));
                         file_put_contents(
-                            $this->localBackupTarget . $newVersion . '/' . $relativeFolder . '/' . $sha1 . '.meta',
+                            $this->createFilePath([$this->localBackupTarget, $newVersion, $relativeFolder, $sha1 . '.meta']),
                             json_encode($fileItem));
 
                     } else {
@@ -152,7 +150,7 @@ class BackupService
                             $stats['removed']++;
 
                             file_put_contents(
-                                $this->localBackupTarget . $newVersion . '/' . $relativeFolder . '/' . $sha1 . '.meta',
+                                $this->createFilePath([$this->localBackupTarget, $newVersion, $relativeFolder, $sha1 . '.meta']),
                                 json_encode($fileItem));
                         }
                     }
@@ -187,12 +185,72 @@ class BackupService
     public function restoreBackup($versionToRestore)
     {
         $this->output->outputLine();
-        $this->output->outputLine('<b>Restore Files..</b>');
+        $this->output->outputLine('<b>Check Backup..</b>');
         $this->output->outputLine();
         $stats = array(
             'restored' => 0,
             'bytes' => 0,
         );
+
+        // DRY RUN FIRST..
+
+        $errors = array();
+        foreach ($this->backupFolders as $folder) {
+            $relativeFolder = $this->getPathByFlowRoot($folder);
+
+            $this->output->outputLine('Check Backup Versions for ' . $relativeFolder . '..');
+            $this->output->outputLine();
+            $flatBackup = $this->getFlatBackup($folder, $versionToRestore);
+
+            if ( is_dir($folder) && !is_writable($folder) ) {
+                $errors[] = $folder.' is not writable! [1]';
+            }else{
+                try {
+                    $this->files->createDirectoryRecursively($folder);
+                    $this->files->removeDirectoryRecursively($folder);
+                } catch (Exception $e) {
+                    $errors[] = $folder . ' is not writable! [2]';
+                }
+            }
+
+            $this->output->outputLine('Check Files of '.$relativeFolder.'..');
+            $this->output->progressStart(count($flatBackup));
+            $i = 0;
+            foreach ($flatBackup as $sha1 => $fileItem) {
+                try {
+                    $content = file_get_contents($this->createFilePath([$this->localBackupTarget, $fileItem['version'], $relativeFolder, $sha1 . '.file']));
+                } catch (\Exception $e) {
+                    $errors[] = 'file not found '.$this->createFilePath([$this->localBackupTarget, $fileItem['version'], $relativeFolder, $sha1 . '.file']);
+                }
+                try {
+                    $this->cryptService->decrypt($content);
+                } catch (\Exception $e) {
+                    $errors[] = 'decryption failed for '.$this->createFilePath([$this->localBackupTarget, $fileItem['version'], $relativeFolder, $sha1 . '.file']);
+                }
+
+                $i++;
+                $this->output->progressSet($i);
+            }
+            $this->output->progressFinish();
+            $this->output->outputLine();
+        }
+
+        if (count($errors)>0) {
+            $this->output->outputLine('<b>ERROR:</b>');
+            foreach ($errors as $error) {
+                $this->output->outputLine(' - '.$error);
+            }
+            $this->output->outputLine();
+            $this->output->outputLine('<b>I\'m so sorry!</b>');
+            $this->output->outputLine('Hopefully you have another Backup..');
+            $this->output->outputLine();
+            return;
+        }
+
+        // RUN RESTORE..
+
+        $this->output->outputLine('<b>Restore Backup..</b>');
+        $this->output->outputLine();
 
         foreach ($this->backupFolders as $folder) {
             $relativeFolder = $this->getPathByFlowRoot($folder);
@@ -211,8 +269,8 @@ class BackupService
             foreach ($flatBackup as $sha1 => $fileItem) {
                 $this->files->createDirectoryRecursively( dirname($fileItem['file']) );
                 $this->cryptService->decryptFileToFile(
-                    $this->localBackupTarget . $fileItem['version'] . '/' . $relativeFolder . '/' . $sha1 . '.file',
-                    FLOW_PATH_ROOT . $fileItem['file']);
+                    $this->createFilePath([$this->localBackupTarget, $fileItem['version'], $relativeFolder, $sha1 . '.file']),
+                    $this->createFilePath([FLOW_PATH_ROOT, $fileItem['file']]));
 
                 $stats['restored']++;
                 $stats['bytes'] = $stats['bytes'] + filesize(FLOW_PATH_ROOT . $fileItem['file']);
@@ -227,6 +285,7 @@ class BackupService
         $this->importDatabase();
         $this->deleteDatabaseTempFolder();
 
+        $this->output->outputLine();
         $this->output->outputLine('<b>Restored ' . $stats['restored'] . ' files</b> with a total of ' . $this->formatBytes($stats['bytes']));
         $this->output->outputLine();
         return;
@@ -247,7 +306,7 @@ class BackupService
 
         try {
             $key = \Crypto::createNewRandomKey();
-            file_put_contents($this->localBackupTarget . 'key', $key);
+            file_put_contents($this->createFilePath([$this->localBackupTarget, 'key']), $key);
             // WARNING: Do NOT encode $key with bin2hex() or base64_encode(),
             // they may leak the key to the attacker through side channels.
         } catch (Ex\CryptoTestFailedException $ex) {
@@ -286,7 +345,7 @@ class BackupService
     {
         // fetch available backup versions..
         $availableVersions = array();
-        $availableVersionFolders = glob($this->localBackupTarget . '*');
+        $availableVersionFolders = glob($this->createFilePath([$this->localBackupTarget, '*']));
         foreach ($availableVersionFolders as $availableVersionFolder) {
             if ( is_dir($availableVersionFolder) ) {
                 $version = basename($availableVersionFolder);
@@ -312,8 +371,8 @@ class BackupService
         // fetch all files in backup folders..
         $filesByVersions = array();
         foreach ($availableVersions as $availableVersion) {
-            if ( file_exists($this->localBackupTarget . $availableVersion . '/' . $relativeFolder . '/') ) {
-                $filesByVersions[$availableVersion] = $this->files->readDirectoryRecursively($this->localBackupTarget . $availableVersion . '/' . $relativeFolder . '/');
+            if ( file_exists($this->createDirectoryPath([$this->localBackupTarget, $availableVersion, $relativeFolder])) ) {
+                $filesByVersions[$availableVersion] = $this->files->readDirectoryRecursively($this->createDirectoryPath([$this->localBackupTarget, $availableVersion, $relativeFolder]));
             }
         }
 
@@ -427,7 +486,7 @@ class BackupService
              * EXPORT TABLES
              */
 
-            $this->files->createDirectoryRecursively($this->localBackupTarget . 'Database/');
+            $this->files->createDirectoryRecursively($this->createDirectoryPath([$this->localBackupTarget, 'Database']));
             $tables = $this->executeLocalShellCommand('echo "show tables;" | mysql --host=%s --user=%s --password=%s %s',
                 array(
                     $this->databaseConfiguration['host'],
@@ -449,7 +508,7 @@ class BackupService
                         $this->databaseConfiguration['password'],
                         $this->databaseConfiguration['dbname'],
                         $table,
-                        $this->localBackupTarget . 'Database/' . $table . '.sql',
+                        $this->createFilePath([$this->localBackupTarget, 'Database', $table . '.sql']),
                     ));
                 $i++;
                 $this->output->progressSet($i);
@@ -475,7 +534,7 @@ class BackupService
                 return;
             }
 
-            $databaseFolderFiles = glob($this->localBackupTarget . 'Database/*');
+            $databaseFolderFiles = glob($this->createFilePath([$this->localBackupTarget, 'Database/*']));
             foreach ($databaseFolderFiles as $databaseFolderFile) {
                 if ( is_file($databaseFolderFile) ) {
                     $tablesToImport[] = $databaseFolderFile;
@@ -507,10 +566,10 @@ class BackupService
      */
     private function deleteDatabaseTempFolder()
     {
-        if ( !is_dir($this->localBackupTarget . 'Database/') ) {
+        if ( !is_dir($this->createDirectoryPath([$this->localBackupTarget, 'Database'])) ) {
             return;
         }
-        $this->files->removeDirectoryRecursively($this->localBackupTarget . 'Database/');
+        $this->files->removeDirectoryRecursively($this->createDirectoryPath([$this->localBackupTarget, 'Database']));
     }
 
     public function removeAllBackups()
@@ -523,7 +582,7 @@ class BackupService
         $this->output->progressStart(count($versions));
         $i = 0;
         foreach ($versions as $version) {
-            $this->files->removeDirectoryRecursively($this->localBackupTarget . $version . '/');
+            $this->files->removeDirectoryRecursively($this->createDirectoryPath([$this->localBackupTarget, $version]));
             $i++;
             $this->output->progressSet($i);
         }
@@ -535,28 +594,28 @@ class BackupService
     public function removeOldBackups()
     {
         $versions = $this->getAvailableVersions();
-        if ( $this->limit < count($versions) ) {
+        if ( $this->historyLimit < count($versions) ) {
 
-            $lastValidIndex = count($versions)-$this->limit;
+            $lastValidIndex = count($versions)-$this->historyLimit;
             if ( $lastValidIndex<=0 ) {
                 return ;
             }
             $lastValidVersion = $versions[$lastValidIndex];
 
             foreach ($this->backupFolders as $folder) {
-                $relativeFloder = $this->getPathByFlowRoot($folder);
+                $relativeFolder = $this->getPathByFlowRoot($folder);
 
                 $lastValidBackup = $this->getFlatBackup($folder, $lastValidVersion);
                 $updatedLastValidBackup = array();
                 foreach ($lastValidBackup as $sha1 => $fileItem) {
-                    $this->files->createDirectoryRecursively($this->localBackupTarget . $lastValidVersion . '/' . $relativeFloder . '/');
-                    if ( $fileItem['version']!=$lastValidVersion && file_exists($this->localBackupTarget . $fileItem['version'] . '/' . $relativeFloder . '/' . $sha1 . '.file') ) {
+                    $this->files->createDirectoryRecursively($this->createDirectoryPath([$this->localBackupTarget, $lastValidVersion, $relativeFolder]));
+                    if ( $fileItem['version']!=$lastValidVersion && file_exists($this->createFilePath([$this->localBackupTarget, $fileItem['version'], $relativeFolder, $sha1 . '.file'])) ) {
                         copy(
-                            $this->localBackupTarget . $fileItem['version'] . '/' . $relativeFloder . '/' . $sha1 . '.file',
-                            $this->localBackupTarget . $lastValidVersion . '/' . $relativeFloder . '/' . $sha1 . '.file');
+                            $this->createFilePath([$this->localBackupTarget, $fileItem['version'], $relativeFolder, $sha1 . '.file']),
+                            $this->createFilePath([$this->localBackupTarget, $lastValidVersion, $relativeFolder, $sha1 . '.file']));
 
                         $fileItem['version'] = $lastValidVersion;
-                        file_put_contents($this->localBackupTarget . $lastValidVersion . '/' . $relativeFloder . '/' . $sha1 . '.meta',
+                        file_put_contents($this->createFilePath([$this->localBackupTarget, $lastValidVersion, $relativeFolder, $sha1 . '.meta']),
                             json_encode($fileItem));
                     }
                     $updatedLastValidBackup[$sha1] = $fileItem;
@@ -567,9 +626,9 @@ class BackupService
             $this->output->outputLine('Remove old Backups..');
             $i = 0;
             foreach ($versions as $version) {
-                $remove = ($i<(count($versions)-$this->limit)) ? true : false;
+                $remove = ($i<(count($versions)-$this->historyLimit)) ? true : false;
                 if ($remove) {
-                    $this->files->removeDirectoryRecursively($this->localBackupTarget . $version . '/');
+                    $this->files->removeDirectoryRecursively($this->createDirectoryPath([$this->localBackupTarget, $version]));
                     $this->output->outputLine(' - '.$version);
                 }
                 $i++;
@@ -586,6 +645,27 @@ class BackupService
     {
         $relativePath = str_replace(FLOW_PATH_ROOT, '', $absolutePath);
         return $relativePath ? $relativePath : $absolutePath;
+    }
+
+    /**
+     * @param array $segments
+     * @return string
+     */
+    private function createDirectoryPath($segments) {
+        $path = '';
+        foreach ($segments as $segment) {
+            $path .= substr($segment, -1)=='/' ? $segment : $segment . '/';
+        }
+        return $path;
+    }
+
+    /**
+     * @param array $segments
+     * @return string
+     */
+    private function createFilePath($segments) {
+        $path = $this->createDirectoryPath($segments);
+        return substr($path, 0, -1);
     }
 
 }

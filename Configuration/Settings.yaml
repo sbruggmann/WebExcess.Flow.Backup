@@ -1,6 +1,7 @@
 WebExcess:
   Flow:
     Backup:
+      HistoryLimit: 30
       Folders:
         Sources:
           - %FLOW_PATH_DATA%Persistent/
