@@ -12,6 +12,9 @@ use TYPO3\Flow\Cli\ConsoleOutput;
 use WebExcess\Flow\Backup\Service\CryptService;
 use WebExcess\Flow\Backup\Output\OutputInterface;
 
+/**
+ * @Flow\Scope("singleton")
+ */
 class BackupService
 {
     /**
@@ -62,6 +65,11 @@ class BackupService
     protected $folders;
 
     /**
+     * @var array
+     */
+    protected $meta;
+
+    /**
      * @param OutputInterface $output
      * @param mixed $keyFile
      * @return void
@@ -71,6 +79,7 @@ class BackupService
         if ($this->databaseConfiguration['driver'] == 'pdo_mysql') {
             $this->backupFolders[] = $this->createDirectoryPath([$this->localBackupTarget, 'Database']);
         }
+        $this->backupFolders[] = $this->createDirectoryPath([$this->localBackupTarget, 'System']);
 
         if (is_null($keyFile)) {
             $keyFile = $this->createFilePath([$this->localBackupTarget, 'key']);
@@ -121,6 +130,8 @@ class BackupService
             'removed' => 0,
         );
 
+        $this->collectSystemSettings();
+
         $this->dumpDatabase();
 
         foreach ($this->backupFolders as $folderIndex => $folder) {
@@ -149,7 +160,7 @@ class BackupService
                         }
 
                         $this->cryptService->encryptFileToFile(
-                            $fileItem['file'],
+                            $this->createFilePath([FLOW_PATH_ROOT, $fileItem['file']]),
                             $this->createFilePath([$this->localBackupTarget, $newVersion, $relativeFolder, $sha1 . '.file']));
                         file_put_contents(
                             $this->createFilePath([$this->localBackupTarget, $newVersion, $relativeFolder, $sha1 . '.meta']),
@@ -169,11 +180,19 @@ class BackupService
                 }
                 $this->output->progressFinish();
                 $this->output->outputLine();
-
             }
         }
 
-        $this->deleteDatabaseTempFolder();
+        if ( file_exists($this->createDirectoryPath([$this->localBackupTarget, $newVersion])) ) {
+            $this->meta['version'] = $newVersion;
+            $now = new \DateTime();
+            $this->meta['timestamp'] = $now->getTimestamp();
+            $this->meta['stats'] = $stats;
+            file_put_contents($this->createFilePath([$this->localBackupTarget, $newVersion, 'info.meta']),
+                json_encode($this->meta, JSON_PRETTY_PRINT));
+        }
+
+        $this->deleteTempFolders();
 
         $this->removeOldBackups();
 
@@ -191,9 +210,10 @@ class BackupService
      * Restore a selected Backup
      *
      * @param string $versionToRestore
+     * @param boolean $unobtrusive
      * @return void
      */
-    public function restoreBackup($versionToRestore)
+    public function restoreBackup($versionToRestore, $unobtrusive = false)
     {
         $this->output->outputLine();
 
@@ -306,11 +326,40 @@ class BackupService
         }
 
         $this->importDatabase();
-        $this->deleteDatabaseTempFolder();
+        $this->restoreSystemSettings();
+        $this->deleteTempFolders();
+
+        if ($unobtrusive) {
+            $this->output->outputLine('<b>You should execute the following flow commands:</b>');
+            $this->output->outputLine();
+            $this->output->outputLine(' - composer install');
+            $this->output->outputLine(' - ./flow flow:cache:flush');
+            $this->output->outputLine(' - ./flow doctrine:migrate');
+            $this->output->outputLine(' - ./flow resource:publish');
+            $this->output->outputLine(' - ./flow cache:warmup');
+        }else {
+            $this->output->outputLine('<b>Reinstall..</b>');
+            $this->output->outputLine();
+
+            $this->output->outputLine(' - composer install..');
+            $this->output->outputLine($this->executeLocalShellCommand('cd ' . FLOW_PATH_ROOT . ' && composer %s',
+                ['install']));
+            $this->output->outputLine(' - flow:cache:flush..');
+            $this->output->outputLine($this->executeLocalShellCommand(FLOW_PATH_ROOT . 'flow flow:cache:flush %s',
+                ['--force']));
+            $this->output->outputLine(' - doctrine:migrate..');
+            $this->output->outputLine($this->executeLocalShellCommand(FLOW_PATH_ROOT . 'flow doctrine:migrate'));
+            $this->output->outputLine(' - resource:publish..');
+            $this->output->outputLine($this->executeLocalShellCommand(FLOW_PATH_ROOT . 'flow resource:publish'));
+            $this->output->outputLine(' - cache:warmup..');
+            $this->output->outputLine($this->executeLocalShellCommand(FLOW_PATH_ROOT . 'flow cache:warmup'));
+        }
 
         $this->output->outputLine();
-        $this->output->outputLine('<b>Restored ' . $stats['restored'] . ' files</b> with a total of ' . $this->formatBytes($stats['bytes']));
+        $this->output->outputLine('<b>Restored ' . $stats['restored'] . ' files</b>');
+        $this->output->outputLine(' - with a total of ' . $this->formatBytes($stats['bytes']));
         $this->output->outputLine();
+
         $this->emitRestoreFinished($this->output, $stats);
         return;
     }
@@ -390,6 +439,23 @@ class BackupService
         }
         sort($availableVersions);
         return $availableVersions;
+    }
+
+    public function getVersionInfo($version)
+    {
+        $versionMeta = file_get_contents($this->createFilePath([$this->localBackupTarget, $version, 'info.meta']));
+        $versionMetaArray = json_decode($versionMeta, true);
+        $versionMetaArray['datetime'] = new \DateTime('@' . $versionMetaArray['timestamp']);
+        return $versionMetaArray;
+    }
+
+    public function getAvailableVersionsWithInfos()
+    {
+        $versions = array();
+        foreach ($this->getAvailableVersions() as $version) {
+            $versions[$version] = $this->getVersionInfo($version);
+        }
+        return $versions;
     }
 
     /**
@@ -512,6 +578,58 @@ class BackupService
      * @return bool
      * @throws \TYPO3\Flow\Utility\Exception
      */
+    private function collectSystemSettings()
+    {
+        $this->files->createDirectoryRecursively($this->createDirectoryPath([$this->localBackupTarget, 'System']));
+
+        $composerContent = file_get_contents($this->createFilePath([FLOW_PATH_ROOT, 'composer.json']));
+        $composer = json_decode($composerContent, true);
+
+        $composerLockContent = file_get_contents($this->createFilePath([FLOW_PATH_ROOT, 'composer.lock']));
+        $composerLock = json_decode($composerLockContent, true);
+
+        $this->meta['packages'] = array_merge($composer['require'], $composer['require-dev']);
+
+        foreach ($this->meta['packages'] as $package => $version) {
+            foreach ($composerLock['packages'] as $packageLock) {
+                if ($packageLock['name']==$package) {
+                    $this->meta['packages'][$package] = array(
+                        'version' => $version,
+                        'installed' => $packageLock['version'],
+                    );
+                }
+            }
+            foreach ($composerLock['packages-dev'] as $packageLock) {
+                if ($packageLock['name']==$package) {
+                    $this->meta['packages'][$package] = array(
+                        'version' => $version,
+                        'installed' => $packageLock['version'],
+                    );
+                }
+            }
+        }
+
+
+        copy($this->createFilePath([FLOW_PATH_ROOT, 'composer.json']), $this->createFilePath([$this->localBackupTarget, 'System', 'composer.json']));
+        copy($this->createFilePath([FLOW_PATH_ROOT, 'composer.lock']), $this->createFilePath([$this->localBackupTarget, 'System', 'composer.lock']));
+        return true;
+    }
+
+    /**
+     * @return bool
+     * @throws \TYPO3\Flow\Utility\Exception
+     */
+    private function restoreSystemSettings()
+    {
+        $this->files->createDirectoryRecursively($this->createDirectoryPath([$this->localBackupTarget, 'System']));
+        copy($this->createFilePath([$this->localBackupTarget, 'System', 'composer.json']), $this->createFilePath([FLOW_PATH_ROOT, 'composer.json']));
+        copy($this->createFilePath([$this->localBackupTarget, 'System', 'composer.lock']), $this->createFilePath([FLOW_PATH_ROOT, 'composer.lock']));
+    }
+
+    /**
+     * @return bool
+     * @throws \TYPO3\Flow\Utility\Exception
+     */
     private function dumpDatabase()
     {
         if ($this->databaseConfiguration['driver'] == 'pdo_mysql') {
@@ -598,12 +716,14 @@ class BackupService
     /**
      * @return void
      */
-    private function deleteDatabaseTempFolder()
+    private function deleteTempFolders()
     {
-        if ( !is_dir($this->createDirectoryPath([$this->localBackupTarget, 'Database'])) ) {
-            return;
+        if ( is_dir($this->createDirectoryPath([$this->localBackupTarget, 'Database'])) ) {
+            $this->files->removeDirectoryRecursively($this->createDirectoryPath([$this->localBackupTarget, 'Database']));
         }
-        $this->files->removeDirectoryRecursively($this->createDirectoryPath([$this->localBackupTarget, 'Database']));
+        if ( is_dir($this->createDirectoryPath([$this->localBackupTarget, 'System'])) ) {
+            $this->files->removeDirectoryRecursively($this->createDirectoryPath([$this->localBackupTarget, 'System']));
+        }
     }
 
     /**
@@ -716,7 +836,7 @@ class BackupService
      * @param array $segments
      * @return string
      */
-    private function createDirectoryPath($segments) {
+    public function createDirectoryPath($segments) {
         $path = '';
         foreach ($segments as $segment) {
             $path .= substr($segment, -1)=='/' ? $segment : $segment . '/';
@@ -728,7 +848,7 @@ class BackupService
      * @param array $segments
      * @return string
      */
-    private function createFilePath($segments) {
+    public function createFilePath($segments) {
         $path = $this->createDirectoryPath($segments);
         return substr($path, 0, -1);
     }

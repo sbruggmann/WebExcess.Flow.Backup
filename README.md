@@ -1,8 +1,12 @@
+[![GitHub license](https://img.shields.io/github/license/mashape/apistatus.svg?style=flat-square)]()
+[![GitHub license](https://img.shields.io/badge/state-experimental-red.svg?style=flat-square)]()
+[![GitHub license](https://img.shields.io/badge/feedback-welcome-brightgreen.svg?style=flat-square)](https://github.com/sbruggmann/WebExcess.Flow.Backup/issues)
+
 # WebExcess.Flow.Backup
 
 **An incremental & encrypted Backup Package for Neos & Flow Framework**
 
-Note: This package is still experimental and not for production and I'm happy about every inputs!
+Note: This package is still experimental and not for production. I'm happy about every inputs!
 
 Important
 ---------
@@ -51,6 +55,13 @@ Remove all Backups:
 ```
 ./flow backup:clear
 ```
+
+Neos CMS Backend Module
+-----------------------
+
+There is a Backend Module for Neos CMS where you have easy access to the backup functions: 
+
+[https://github.com/sbruggmann/WebExcess.Neos.Backup](https://github.com/sbruggmann/WebExcess.Neos.Backup)
 
 Configuration
 -------------
